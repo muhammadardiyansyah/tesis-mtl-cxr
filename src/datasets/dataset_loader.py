@@ -29,8 +29,14 @@ class ChestXrayDataset(Dataset):
 
         image = Image.open(image_path).convert("RGB")
 
-        cardiomegaly = row["cardiomegaly"]
-        tb = row["tb"]
+        cardiomegaly = max(
+            0,
+            row["cardiomegaly"]
+        )
+        tb = max(
+            0,
+            row["tb"]
+        )
 
         labels = torch.tensor(
             [cardiomegaly, tb],
