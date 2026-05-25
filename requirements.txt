@@ -24,6 +24,7 @@ filelock==3.29.0
 fonttools==4.63.0
 fqdn==1.5.1
 fsspec==2026.4.0
+grad-cam==1.5.5
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -109,6 +110,7 @@ torchvision==0.27.0+cpu
 tornado==6.5.5
 tqdm==4.67.3
 traitlets==5.15.0
+ttach==0.0.3
 typing_extensions==4.15.0
 tzdata==2026.2
 uri-template==1.3.0
