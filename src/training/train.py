@@ -13,10 +13,11 @@ def train_one_epoch(
 
     running_loss = 0.0
 
-    for images, labels in dataloader:
+    for images, labels, mask in dataloader:
 
         images = images.to(device)
         labels = labels.to(device)
+        mask = mask.to(device)
 
         optimizer.zero_grad()
 
@@ -24,7 +25,8 @@ def train_one_epoch(
 
         loss = criterion(
             outputs,
-            labels
+            labels,
+            mask
         )
 
         loss.backward()

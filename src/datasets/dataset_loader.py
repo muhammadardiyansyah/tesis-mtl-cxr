@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from PIL import Image
 
 import torch
@@ -29,17 +30,30 @@ class ChestXrayDataset(Dataset):
 
         image = Image.open(image_path).convert("RGB")
 
-        cardiomegaly = max(
-            0,
-            row["cardiomegaly"]
-        )
-        tb = max(
-            0,
-            row["tb"]
+        cardiomegaly = row["cardiomegaly"]
+        tb = row["tb"]
+
+        labels = np.array([
+            cardiomegaly,
+            tb
+        ], dtype=float)
+
+        labels[labels < 0] = np.nan
+
+        mask = ~np.isnan(labels)
+
+        labels = np.nan_to_num(
+            labels,
+            nan=0.0
         )
 
         labels = torch.tensor(
-            [cardiomegaly, tb],
+            labels,
+            dtype=torch.float32
+        )
+
+        mask = torch.tensor(
+            mask,
             dtype=torch.float32
         )
 
@@ -47,4 +61,4 @@ class ChestXrayDataset(Dataset):
 
             image = self.transform(image)
 
-        return image, labels
+        return image, labels, mask

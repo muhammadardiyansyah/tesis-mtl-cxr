@@ -14,16 +14,18 @@ def validate_one_epoch(
 
     with torch.no_grad():
 
-        for images, labels in dataloader:
+        for images, labels, mask in dataloader:
 
             images = images.to(device)
             labels = labels.to(device)
+            mask = mask.to(device)
 
             outputs = model(images)
 
             loss = criterion(
                 outputs,
-                labels
+                labels,
+                mask
             )
 
             running_loss += loss.item()
