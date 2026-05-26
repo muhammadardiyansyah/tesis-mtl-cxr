@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 
 
 def validate_one_epoch(
@@ -14,7 +15,11 @@ def validate_one_epoch(
 
     with torch.no_grad():
 
-        for images, labels, mask in dataloader:
+        for images, labels, mask in tqdm(
+            dataloader,
+            desc="Validation",
+            leave=False
+        ):
 
             images = images.to(device)
             labels = labels.to(device)
