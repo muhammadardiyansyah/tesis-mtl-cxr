@@ -1,16 +1,18 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class MaskedBCELoss(nn.Module):
 
-    def __init__(self):
+    def __init__(
+        self,
+        pos_weight=None
+    ):
 
         super().__init__()
 
-        self.bce = nn.BCEWithLogitsLoss(
-            reduction="none"
-        )
+        self.pos_weight = pos_weight
 
     def forward(
         self,
@@ -19,9 +21,11 @@ class MaskedBCELoss(nn.Module):
         mask
     ):
 
-        loss = self.bce(
+        loss = F.binary_cross_entropy_with_logits(
             outputs,
-            targets
+            targets,
+            reduction="none",
+            pos_weight=self.pos_weight
         )
 
         loss = loss * mask
@@ -34,6 +38,4 @@ class MaskedBCELoss(nn.Module):
                 requires_grad=True
             )
 
-        loss = loss.sum() / mask.sum()
-
-        return loss
+        return loss.sum() / mask.sum()
