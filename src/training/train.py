@@ -1,12 +1,14 @@
+"""Training loop for the mask-aware multi-task CXR model."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
 import torch
 from tqdm import tqdm
 
-from src.training.early_stopping import (
-    EarlyStopping
-)
-from src.training.validate import (
-    validate_one_epoch
-)
+from src.training.validate import validate_one_epoch
+from src.utils.checkpoint import save_checkpoint
 
 
 def train_one_epoch(
@@ -14,44 +16,49 @@ def train_one_epoch(
     dataloader,
     criterion,
     optimizer,
-    device
-):
+    device,
+    *,
+    grad_clip_norm: float | None = 1.0,
+    max_batches: int | None = None,
+) -> float:
+    """Train for one epoch and return mean batch loss.
 
+    ``max_batches`` must remain ``None`` for a real experiment; it is provided
+    only for quick end-to-end smoke tests.
+    """
     model.train()
-
+    device = torch.device(device)
     running_loss = 0.0
+    processed_batches = 0
 
-    for images, labels, mask in tqdm(
-        dataloader,
-        desc="Training",
-        leave=False
-    ):
+    progress = tqdm(dataloader, desc="Training", leave=False)
+    for batch_index, (images, labels, masks) in enumerate(progress):
+        if max_batches is not None and batch_index >= max_batches:
+            break
 
-        images = images.to(device)
-        labels = labels.to(device)
-        mask = mask.to(device)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True).float()
+        masks = masks.to(device, non_blocking=True).float()
 
-        optimizer.zero_grad()
-
-        outputs = model(images)
-
-        loss = criterion(
-            outputs,
-            labels,
-            mask
-        )
+        optimizer.zero_grad(set_to_none=True)
+        logits = model(images)
+        loss = criterion(logits, labels, masks)
+        if not torch.isfinite(loss):
+            raise FloatingPointError("Training loss menjadi NaN atau inf.")
 
         loss.backward()
-
+        if grad_clip_norm is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
 
-        running_loss += loss.item()
+        running_loss += float(loss.item())
+        processed_batches += 1
+        progress.set_postfix(loss=f"{loss.item():.4f}")
 
-    epoch_loss = (
-        running_loss / len(dataloader)
-    )
+    if processed_batches == 0:
+        raise RuntimeError("Training dataloader tidak menghasilkan batch.")
+    return running_loss / processed_batches
 
-    return epoch_loss
 
 def train_model(
     model,
@@ -60,82 +67,89 @@ def train_model(
     criterion,
     optimizer,
     device,
-    epochs=10,
-    patience=3,
-    checkpoint_path=None
-):
+    epochs: int = 10,
+    patience: int = 3,
+    checkpoint_path=None,
+    *,
+    scheduler=None,
+    task_names=("cardiomegaly", "tuberculosis"),
+    thresholds=0.5,
+    grad_clip_norm: float | None = 1.0,
+    max_train_batches: int | None = None,
+    max_val_batches: int | None = None,
+) -> dict[str, list]:
+    """Train, validate, early-stop, and retain the best validation checkpoint."""
+    if epochs < 1:
+        raise ValueError("epochs minimal 1.")
+    if patience < 1:
+        raise ValueError("patience minimal 1.")
 
-    history = {
+    model.to(device)
+    history: dict[str, list] = {
         "train_loss": [],
-        "val_loss": []
+        "val_loss": [],
+        "val_metrics": [],
     }
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
 
-    early_stopping = EarlyStopping(
-        patience=patience,
-        save_path=checkpoint_path
-    )
-
-    for epoch in range(epochs):
-
-        batch_sampler = getattr(
-            train_loader,
-            "batch_sampler",
-            None,
-        )
-
-        if hasattr(
-            batch_sampler,
-            "set_epoch",
-        ):
-            batch_sampler.set_epoch(epoch)
-            
-        print(
-            f"\nEpoch "
-            f"{epoch+1}/{epochs}"
-        )
-
+    for epoch in range(1, epochs + 1):
+        print(f"\nEpoch {epoch}/{epochs}")
         train_loss = train_one_epoch(
             model=model,
             dataloader=train_loader,
             criterion=criterion,
             optimizer=optimizer,
-            device=device
+            device=device,
+            grad_clip_norm=grad_clip_norm,
+            max_batches=max_train_batches,
         )
-
-        val_loss = validate_one_epoch(
+        validation = validate_one_epoch(
             model=model,
             dataloader=val_loader,
             criterion=criterion,
-            device=device
+            device=device,
+            task_names=task_names,
+            thresholds=thresholds,
+            return_metrics=True,
+            max_batches=max_val_batches,
         )
+        val_loss = float(validation["loss"])
+        val_metrics = validation["metrics"]
 
-        history["train_loss"].append(
-            train_loss
-        )
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+        history["val_metrics"].append(val_metrics)
+        print(f"Train loss: {train_loss:.4f} | Val loss: {val_loss:.4f}")
 
-        history["val_loss"].append(
-            val_loss
-        )
-
-        print(
-            f"Train Loss: "
-            f"{train_loss:.4f}"
-        )
-
-        print(
-            f"Val Loss: "
-            f"{val_loss:.4f}"
-        )
-
-        early_stopping(
-            val_loss,
-            model
-        )
-
-        if early_stopping.early_stop:
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            if checkpoint_path is not None:
+                save_checkpoint(
+                    model,
+                    Path(checkpoint_path),
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    epoch=epoch,
+                    metrics={"val_loss": val_loss, "tasks": val_metrics},
+                    extra={"task_names": list(task_names)},
+                )
+        else:
+            epochs_without_improvement += 1
             print(
-                "EARLY STOPPING TRIGGERED"
+                "Early stopping: "
+                f"{epochs_without_improvement}/{patience} epoch tanpa perbaikan"
             )
+
+        if scheduler is not None:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(val_loss)
+            else:
+                scheduler.step()
+
+        if epochs_without_improvement >= patience:
+            print("Early stopping dipicu.")
             break
 
     return history
