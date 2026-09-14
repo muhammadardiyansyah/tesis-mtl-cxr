@@ -1,41 +1,95 @@
+"""Deterministic and training transforms for chest X-ray images."""
+
+from __future__ import annotations
+
+from typing import Union
+
+from PIL import Image, ImageOps
 from torchvision import transforms
 
 
-def get_train_transforms():
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
 
-    train_transforms = transforms.Compose([
 
-        transforms.Resize((224, 224)),
+class PadToSquare:
+    """Pad an image to a square without distorting its anatomical ratio."""
 
-        transforms.RandomHorizontalFlip(p=0.5),
+    def __init__(self, fill: Union[int, tuple[int, int, int]] = 0):
+        self.fill = fill
 
-        transforms.RandomRotation(degrees=10),
+    def __call__(self, image: Image.Image) -> Image.Image:
+        width, height = image.size
+        maximum_side = max(width, height)
 
-        transforms.ToTensor(),
+        horizontal_padding = maximum_side - width
+        vertical_padding = maximum_side - height
 
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
+        left = horizontal_padding // 2
+        right = horizontal_padding - left
+        top = vertical_padding // 2
+        bottom = vertical_padding - top
+
+        return ImageOps.expand(
+            image,
+            border=(left, top, right, bottom),
+            fill=self.fill,
         )
 
-    ])
 
-    return train_transforms
+def get_train_transforms(image_size: int = 224):
+    """Return conservative stochastic augmentation for training only.
+
+    Horizontal flipping is intentionally excluded because it reverses
+    anatomical laterality and laterality markers. Padding is performed before
+    resizing so the cardiothoracic geometry is not stretched into a square.
+    """
+
+    return transforms.Compose(
+        [
+            PadToSquare(fill=0),
+            transforms.Resize((image_size, image_size)),
+            transforms.RandomAffine(
+                degrees=5,
+                translate=(0.02, 0.02),
+                scale=(0.95, 1.05),
+                fill=0,
+            ),
+            transforms.ColorJitter(
+                brightness=0.10,
+                contrast=0.10,
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=IMAGENET_MEAN,
+                std=IMAGENET_STD,
+            ),
+        ]
+    )
 
 
-def get_val_transforms():
+def get_eval_transforms(image_size: int = 224):
+    """Return deterministic transforms for validation and testing."""
 
-    val_transforms = transforms.Compose([
+    return transforms.Compose(
+        [
+            PadToSquare(fill=0),
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=IMAGENET_MEAN,
+                std=IMAGENET_STD,
+            ),
+        ]
+    )
 
-        transforms.Resize((224, 224)),
 
-        transforms.ToTensor(),
+def get_inference_transforms(image_size: int = 224):
+    """Inference must use the same deterministic pipeline as evaluation."""
 
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
+    return get_eval_transforms(image_size=image_size)
 
-    ])
 
-    return val_transforms
+# Backward-compatible name for notebooks that used get_val_transforms().
+def get_val_transforms(image_size: int = 224):
+    return get_eval_transforms(image_size=image_size)

@@ -1,70 +1,65 @@
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
+"""Task-specific Grad-CAM for the MTL chest X-ray model."""
 
+from __future__ import annotations
+
+import matplotlib.pyplot as plt
+import numpy as np
 from PIL import Image
 
-from torchvision.transforms import Compose
-
 from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.image import (
-    show_cam_on_image
-)
+from pytorch_grad_cam.utils.image import show_cam_on_image
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-from src.datasets.transforms import (
-    get_train_transforms
-)
+from src.datasets.transforms import PadToSquare, get_inference_transforms
+
+
+TASK_NAMES = ("cardiomegaly", "tuberculosis")
 
 
 def generate_gradcam(
     model,
     image_path,
     target_layer,
-    device
-):
+    device,
+    task_index: int,
+    image_size: int = 224,
+    show: bool = True,
+) -> np.ndarray:
+    """Generate Grad-CAM for one explicitly selected output task."""
+
+    if task_index not in (0, 1):
+        raise ValueError(
+            "task_index must be 0 (cardiomegaly) or 1 (tuberculosis)"
+        )
 
     model.eval()
 
-    image = Image.open(
-        image_path
-    ).convert("RGB")
+    with Image.open(image_path) as image_file:
+        image = image_file.convert("RGB")
 
-    transform = get_train_transforms()
+    transform = get_inference_transforms(image_size=image_size)
+    input_tensor = transform(image).unsqueeze(0).to(device)
 
-    input_tensor = transform(image)
+    display_image = PadToSquare(fill=0)(image)
+    display_image = display_image.resize((image_size, image_size))
+    rgb_image = np.asarray(display_image, dtype=np.float32) / 255.0
 
-    image_resized = image.resize(
-        (224, 224)
-    )
-
-    rgb_image = (
-        np.array(image_resized) / 255.0
-    )
-
-    input_tensor = input_tensor.unsqueeze(0)
-
-    input_tensor = input_tensor.to(device)
-
-    cam = GradCAM(
-        model=model,
-        target_layers=[target_layer]
-    )
-
-    grayscale_cam = cam(
-        input_tensor=input_tensor
-    )[0]
+    targets = [ClassifierOutputTarget(task_index)]
+    cam = GradCAM(model=model, target_layers=[target_layer])
+    grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0]
 
     visualization = show_cam_on_image(
         rgb_image,
         grayscale_cam,
-        use_rgb=True
+        use_rgb=True,
     )
 
-    plt.figure(figsize=(8,8))
+    if show:
+        plt.figure(figsize=(7, 7))
+        plt.imshow(visualization)
+        plt.axis("off")
+        plt.title(f"Grad-CAM — {TASK_NAMES[task_index]}")
+        plt.tight_layout()
+        plt.show()
 
-    plt.imshow(visualization)
-    plt.axis("off")
-
-    plt.title("Grad-CAM Visualization")
-
-    plt.show()
+    return visualization

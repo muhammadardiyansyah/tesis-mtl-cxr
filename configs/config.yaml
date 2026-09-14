@@ -41,6 +41,10 @@ training:
   image_size: 224
   random_seed: 42
 
+  num_workers: 0
+  eval_batch_size: 64
+  pin_memory: false
+
 class_balance:
   method: "positive_class_weight"
 
@@ -66,3 +70,18 @@ multitask:
     tuberculosis: 1.0
 
   loss_reduction: "mean_per_active_task"
+
+batch_sampling:
+  strategy: "source_controlled_task_balanced"
+  batch_size: 32
+
+  samples_per_source:
+    nih: 8
+    chexpert: 8
+    tbx11k: 16
+
+  expected_active_labels:
+    cardiomegaly: 16
+    tuberculosis: 16
+
+  steps_per_epoch: null

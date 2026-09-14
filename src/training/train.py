@@ -76,6 +76,19 @@ def train_model(
     )
 
     for epoch in range(epochs):
+
+        batch_sampler = getattr(
+            train_loader,
+            "batch_sampler",
+            None,
+        )
+
+        if hasattr(
+            batch_sampler,
+            "set_epoch",
+        ):
+            batch_sampler.set_epoch(epoch)
+            
         print(
             f"\nEpoch "
             f"{epoch+1}/{epochs}"
