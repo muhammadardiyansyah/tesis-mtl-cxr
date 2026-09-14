@@ -1,0 +1,219 @@
+"""Command-line entry point for reproducible MTL CXR experiments."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import torch
+
+from src.datasets.dataloaders import build_dataloaders
+from src.losses.masked_loss import MaskedBCELoss
+from src.models.multitask_model import MultiTaskModel
+from src.training.train import train_model
+from src.utils.config import get_config_path, load_config
+from src.utils.seed import set_global_seed
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Train the mask-aware multi-task CXR model."
+    )
+    parser.add_argument(
+        "--config",
+        default="configs/config.yaml",
+        help="Path config utama, relatif terhadap root proyek.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("smoke", "full"),
+        default=None,
+        help="smoke untuk uji singkat; full untuk eksperimen sebenarnya.",
+    )
+    parser.add_argument(
+        "--allow-cpu-full",
+        action="store_true",
+        help="Izinkan full training pada CPU (biasanya sangat lambat).",
+    )
+    return parser.parse_args()
+
+
+def resolve_device(requested: str) -> torch.device:
+    requested = str(requested).lower().strip()
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA diminta tetapi tidak tersedia.")
+    if requested not in {"cpu", "cuda"}:
+        raise ValueError("training.device harus berisi auto, cpu, atau cuda.")
+    return torch.device(requested)
+
+
+def build_optimizer(model, config: dict):
+    optimizer_config = config.get("optimizer", {})
+    training_config = config["training"]
+    name = str(optimizer_config.get("name", "adamw")).lower()
+    if name != "adamw":
+        raise ValueError("Saat ini optimizer yang didukung adalah adamw.")
+    return torch.optim.AdamW(
+        model.parameters(),
+        lr=float(training_config["learning_rate"]),
+        weight_decay=float(training_config["weight_decay"]),
+    )
+
+
+def build_scheduler(optimizer, config: dict):
+    scheduler_config = config.get("scheduler", {})
+    name = str(scheduler_config.get("name", "none")).lower()
+    if name in {"none", "null", ""}:
+        return None
+    if name != "reduce_on_plateau":
+        raise ValueError("Scheduler yang didukung: none atau reduce_on_plateau.")
+    return torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=float(scheduler_config.get("factor", 0.5)),
+        patience=int(scheduler_config.get("patience", 2)),
+        min_lr=float(scheduler_config.get("min_learning_rate", 1e-6)),
+    )
+
+
+def to_json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_json_safe(item) for item in value]
+    if isinstance(value, float) and not torch.isfinite(torch.tensor(value)):
+        return None
+    return value
+
+
+def print_task_metrics(metrics: dict) -> None:
+    print("\nMetrik validation terakhir:")
+    for task_name, values in metrics.items():
+        print(
+            f"- {task_name}: n={values['n']}, "
+            f"AUC={values['roc_auc']:.4f}, F1={values['f1']:.4f}, "
+            f"sensitivitas={values['recall']:.4f}, "
+            f"spesifisitas={values['specificity']:.4f}"
+        )
+
+
+def main() -> None:
+    args = parse_args()
+    config = load_config(args.config)
+    training_config = config["training"]
+    model_config = config["model"]
+    multitask_config = config["multitask"]
+    experiment_config = config["experiment"]
+
+    mode = args.mode or str(experiment_config.get("default_mode", "smoke"))
+    device = resolve_device(training_config.get("device", "auto"))
+    if mode == "full" and device.type == "cpu" and not args.allow_cpu_full:
+        raise RuntimeError(
+            "Full training diblokir karena hanya CPU yang tersedia. "
+            "Gunakan mesin GPU, atau tambahkan --allow-cpu-full jika benar-benar sadar risikonya."
+        )
+
+    seed = int(training_config.get("random_seed", 42))
+    set_global_seed(seed, bool(training_config.get("deterministic", True)))
+    task_names = tuple(multitask_config["task_names"])
+    pos_weights = [
+        float(config["class_balance"][task_name]["pos_weight"])
+        for task_name in task_names
+    ]
+    task_weights = [
+        float(multitask_config["task_weights"][task_name])
+        for task_name in task_names
+    ]
+
+    smoke_config = experiment_config.get("smoke", {})
+    if mode == "smoke":
+        epochs = int(smoke_config.get("epochs", 1))
+        max_train_batches = int(smoke_config.get("train_batches", 2))
+        max_val_batches = int(smoke_config.get("val_batches", 2))
+        pretrained = bool(smoke_config.get("use_pretrained_weights", False))
+        checkpoint_path = None
+    else:
+        epochs = int(training_config["epochs"])
+        max_train_batches = None
+        max_val_batches = None
+        pretrained = bool(model_config.get("pretrained", True))
+        checkpoint_path = (
+            get_config_path(config, "checkpoints")
+            / experiment_config["checkpoint_filename"]
+        )
+
+    print("=" * 68)
+    print("MTL CXR TRAINING")
+    print("=" * 68)
+    print(f"Mode       : {mode}")
+    print(f"Device     : {device}")
+    print(f"Backbone   : {model_config['backbone']}")
+    print(f"Pretrained : {pretrained}")
+    print(f"Epoch      : {epochs}")
+    print(f"Task       : {', '.join(task_names)}")
+
+    loaders = build_dataloaders(config)
+    model = MultiTaskModel(
+        backbone_name=model_config["backbone"],
+        pretrained=pretrained,
+        dropout=float(model_config.get("dropout", 0.2)),
+        task_names=task_names,
+        freeze_backbone=bool(model_config.get("freeze_backbone", False)),
+    ).to(device)
+    criterion = MaskedBCELoss(
+        pos_weight=torch.tensor(pos_weights, device=device),
+        task_weight=task_weights,
+    ).to(device)
+    optimizer = build_optimizer(model, config)
+    scheduler = build_scheduler(optimizer, config)
+
+    started_at = datetime.now().astimezone()
+    history = train_model(
+        model=model,
+        train_loader=loaders["train"],
+        val_loader=loaders["val"],
+        criterion=criterion,
+        optimizer=optimizer,
+        device=device,
+        epochs=epochs,
+        patience=int(training_config.get("patience", 5)),
+        checkpoint_path=checkpoint_path,
+        scheduler=scheduler,
+        task_names=task_names,
+        grad_clip_norm=float(training_config.get("grad_clip_norm", 1.0)),
+        max_train_batches=max_train_batches,
+        max_val_batches=max_val_batches,
+    )
+    finished_at = datetime.now().astimezone()
+    print_task_metrics(history["val_metrics"][-1])
+
+    if mode == "full":
+        output_path = (
+            get_config_path(config, "outputs")
+            / experiment_config["history_filename"]
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "experiment": experiment_config["name"],
+            "mode": mode,
+            "device": str(device),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "history": history,
+        }
+        output_path.write_text(
+            json.dumps(to_json_safe(payload), indent=2),
+            encoding="utf-8",
+        )
+        print(f"Riwayat eksperimen tersimpan: {output_path}")
+
+    print("\nTraining selesai dengan aman.")
+
+
+if __name__ == "__main__":
+    main()
