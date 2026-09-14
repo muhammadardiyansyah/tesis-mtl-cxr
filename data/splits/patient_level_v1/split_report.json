@@ -1,0 +1,76 @@
+{
+    "version": "patient_level_v1",
+    "random_seed": 42,
+    "label_policy": {
+        "chexpert_blank_cardiomegaly": "0_weak_negative",
+        "chexpert_uncertain_minus_1": "masked_u_ignore",
+        "unavailable_task": "masked_minus_1"
+    },
+    "input_rows": 343830,
+    "usable_rows": 335743,
+    "removed_without_active_label": 8087,
+    "splits": {
+        "train": {
+            "rows": 233545,
+            "patients_or_groups": 71651,
+            "sources": {
+                "chexpert": 150405,
+                "nih": 77260,
+                "tbx11k": 5880
+            },
+            "cardiomegaly": {
+                "negative_0": 206709,
+                "positive_1": 20956,
+                "masked_-1": 5880
+            },
+            "tb": {
+                "negative_0": 5320,
+                "positive_1": 560,
+                "masked_-1": 227665
+            }
+        },
+        "val": {
+            "rows": 51964,
+            "patients_or_groups": 15354,
+            "sources": {
+                "chexpert": 32768,
+                "nih": 17936,
+                "tbx11k": 1260
+            },
+            "cardiomegaly": {
+                "negative_0": 46248,
+                "positive_1": 4456,
+                "masked_-1": 1260
+            },
+            "tb": {
+                "negative_0": 1140,
+                "positive_1": 120,
+                "masked_-1": 50704
+            }
+        },
+        "test": {
+            "rows": 50234,
+            "patients_or_groups": 15356,
+            "sources": {
+                "chexpert": 32154,
+                "nih": 16820,
+                "tbx11k": 1260
+            },
+            "cardiomegaly": {
+                "negative_0": 44637,
+                "positive_1": 4337,
+                "masked_-1": 1260
+            },
+            "tb": {
+                "negative_0": 1140,
+                "positive_1": 120,
+                "masked_-1": 48974
+            }
+        }
+    },
+    "patient_overlap": {
+        "train_vs_val": 0,
+        "train_vs_test": 0,
+        "val_vs_test": 0
+    }
+}

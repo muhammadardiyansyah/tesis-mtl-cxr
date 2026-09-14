@@ -1,0 +1,68 @@
+project:
+  root: "."
+  name: "tesis_mtl_cxr"
+
+paths:
+  raw_data: "data/raw"
+  metadata: "data/metadata"
+  model_ready_metadata: "data/metadata/harmonized_model_ready_v1.csv"
+
+  train_csv: "data/splits/patient_level_v1/train.csv"
+  val_csv: "data/splits/patient_level_v1/val.csv"
+  test_csv: "data/splits/patient_level_v1/test.csv"
+  split_report: "data/splits/patient_level_v1/split_report.json"
+
+  checkpoints: "checkpoints"
+  outputs: "outputs"
+  external_data: "data/raw/external_rs"
+
+datasets:
+  nih: "chestxray14"
+  chexpert: "chexpert"
+  tbx11k: "tbx11k"
+  external: "external_rs"
+
+data_policy:
+  split_version: "patient_level_v1"
+  split_method: "patient_level_stratified"
+  train_fraction: 0.70
+  validation_fraction: 0.15
+  test_fraction: 0.15
+
+  chexpert_blank: 0
+  chexpert_blank_interpretation: "unmentioned_weak_negative"
+  chexpert_uncertain: -1
+  chexpert_uncertain_policy: "u_ignore"
+
+  unavailable_task_value: -1
+  random_seed: 42
+
+training:
+  image_size: 224
+  random_seed: 42
+
+class_balance:
+  method: "positive_class_weight"
+
+  cardiomegaly:
+    negative: 206709
+    positive: 20956
+    masked: 5880
+    pos_weight: 9.8640
+
+  tuberculosis:
+    negative: 5320
+    positive: 560
+    masked: 227665
+    pos_weight: 9.5000
+
+multitask:
+  task_names:
+    - "cardiomegaly"
+    - "tuberculosis"
+
+  task_weights:
+    cardiomegaly: 1.0
+    tuberculosis: 1.0
+
+  loss_reduction: "mean_per_active_task"

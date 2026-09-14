@@ -26,3 +26,17 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local machine configuration
+configs/config.local.yaml
+
+# Generated split CSV files
+data/splits/**/*.csv
+data/metadata/harmonized_model_ready_v1.csv
+
+# Generated audit details
+reports/data_audit/missing_images.csv
+reports/data_audit/unreadable_sample.csv
+
+# Generated local audit reports
+reports/data_audit/
