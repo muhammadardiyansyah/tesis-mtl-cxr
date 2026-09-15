@@ -29,9 +29,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=("smoke", "full"),
+        choices=("smoke", "pilot", "full"),
         default=None,
-        help="smoke untuk uji singkat; full untuk eksperimen sebenarnya.",
+        help=(
+            "smoke untuk uji singkat; pilot untuk satu epoch lengkap; "
+            "full untuk eksperimen sebenarnya."
+        ),
     )
     parser.add_argument(
         "--allow-cpu-full",
@@ -131,12 +134,30 @@ def main() -> None:
     ]
 
     smoke_config = experiment_config.get("smoke", {})
+    pilot_config = experiment_config.get("pilot", {})
     if mode == "smoke":
         epochs = int(smoke_config.get("epochs", 1))
         max_train_batches = int(smoke_config.get("train_batches", 2))
         max_val_batches = int(smoke_config.get("val_batches", 2))
         pretrained = bool(smoke_config.get("use_pretrained_weights", False))
         checkpoint_path = None
+        history_filename = None
+    elif mode == "pilot":
+        epochs = int(pilot_config.get("epochs", 1))
+        max_train_batches = None
+        max_val_batches = None
+        pretrained = bool(pilot_config.get("use_pretrained_weights", True))
+        checkpoint_path = (
+            get_config_path(config, "checkpoints")
+            / pilot_config.get(
+                "checkpoint_filename",
+                "resnet18_mtl_pilot_v1_best.pt",
+            )
+        )
+        history_filename = pilot_config.get(
+            "history_filename",
+            "resnet18_mtl_pilot_v1_history.json",
+        )
     else:
         epochs = int(training_config["epochs"])
         max_train_batches = None
@@ -146,6 +167,7 @@ def main() -> None:
             get_config_path(config, "checkpoints")
             / experiment_config["checkpoint_filename"]
         )
+        history_filename = experiment_config["history_filename"]
 
     print("=" * 68)
     print("MTL CXR TRAINING")
@@ -192,10 +214,10 @@ def main() -> None:
     finished_at = datetime.now().astimezone()
     print_task_metrics(history["val_metrics"][-1])
 
-    if mode == "full":
+    if mode in {"pilot", "full"}:
         output_path = (
             get_config_path(config, "outputs")
-            / experiment_config["history_filename"]
+            / history_filename
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -204,6 +226,7 @@ def main() -> None:
             "device": str(device),
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
+            "config": config,
             "history": history,
         }
         output_path.write_text(

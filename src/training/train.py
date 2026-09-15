@@ -94,6 +94,10 @@ def train_model(
     epochs_without_improvement = 0
 
     for epoch in range(1, epochs + 1):
+        batch_sampler = getattr(train_loader, "batch_sampler", None)
+        if batch_sampler is not None and hasattr(batch_sampler, "set_epoch"):
+            batch_sampler.set_epoch(epoch - 1)
+
         print(f"\nEpoch {epoch}/{epochs}")
         train_loss = train_one_epoch(
             model=model,
