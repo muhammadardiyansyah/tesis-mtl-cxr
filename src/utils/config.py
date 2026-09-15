@@ -65,10 +65,12 @@ def deep_merge(
 
 def load_config(
     config_path: Optional[str] = None,
+    *,
+    use_local_config: bool = True,
 ) -> dict:
     """
-    Membaca config.yaml kemudian menerapkan
-    config.local.yaml jika tersedia.
+    Membaca konfigurasi, menerapkan ``base_config`` bila didefinisikan,
+    lalu menerapkan config.local.yaml jika diizinkan dan tersedia.
     """
 
     if config_path is None:
@@ -81,7 +83,14 @@ def load_config(
 
     config = read_yaml(main_path)
 
-    if LOCAL_CONFIG_PATH.exists():
+    base_config = config.pop("base_config", None)
+    if base_config:
+        base_path = Path(base_config)
+        if not base_path.is_absolute():
+            base_path = main_path.parent / base_path
+        config = deep_merge(read_yaml(base_path.resolve()), config)
+
+    if use_local_config and LOCAL_CONFIG_PATH.exists():
         local_config = read_yaml(
             LOCAL_CONFIG_PATH
         )

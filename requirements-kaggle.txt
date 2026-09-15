@@ -1,0 +1,8 @@
+# Kaggle already supplies CUDA-enabled torch and torchvision.
+# Do not install the Windows/CPU requirements.txt inside Kaggle.
+numpy
+pandas
+Pillow
+PyYAML
+scikit-learn
+tqdm

@@ -1,0 +1,22 @@
+# Kaggle GPU override. Run with --no-local-config so Windows paths are ignored.
+base_config: "config.yaml"
+
+paths:
+  raw_data: "/kaggle/working/mtl_cxr_data/raw"
+  metadata: "/kaggle/input/mtl-cxr-private-data/metadata"
+  model_ready_metadata: "/kaggle/input/mtl-cxr-private-data/metadata/harmonized_model_ready_v1.csv"
+  train_csv: "/kaggle/input/mtl-cxr-private-data/splits/patient_level_v1/train.csv"
+  val_csv: "/kaggle/input/mtl-cxr-private-data/splits/patient_level_v1/val.csv"
+  test_csv: "/kaggle/input/mtl-cxr-private-data/splits/patient_level_v1/test.csv"
+  split_report: "/kaggle/input/mtl-cxr-private-data/splits/patient_level_v1/split_report.json"
+  checkpoints: "/kaggle/working/checkpoints"
+  outputs: "/kaggle/working/outputs"
+  external_data: "/kaggle/working/mtl_cxr_data/raw/external_rs"
+
+training:
+  device: "cuda"
+  num_workers: 2
+  prefetch_factor: 2
+  eval_batch_size: 128
+  pin_memory: true
+  mixed_precision: true

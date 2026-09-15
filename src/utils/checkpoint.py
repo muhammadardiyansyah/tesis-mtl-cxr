@@ -14,6 +14,7 @@ def save_checkpoint(
     *,
     optimizer=None,
     scheduler=None,
+    scaler=None,
     epoch: int | None = None,
     metrics: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
@@ -32,6 +33,8 @@ def save_checkpoint(
         checkpoint["optimizer_state_dict"] = optimizer.state_dict()
     if scheduler is not None:
         checkpoint["scheduler_state_dict"] = scheduler.state_dict()
+    if scaler is not None:
+        checkpoint["scaler_state_dict"] = scaler.state_dict()
 
     torch.save(checkpoint, path)
     print(f"Checkpoint tersimpan: {path}")
@@ -44,6 +47,7 @@ def load_checkpoint(
     *,
     optimizer=None,
     scheduler=None,
+    scaler=None,
     strict: bool = True,
 ) -> dict[str, Any]:
     """Load both new full checkpoints and older raw state-dict files."""
@@ -55,6 +59,8 @@ def load_checkpoint(
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if scheduler is not None and "scheduler_state_dict" in checkpoint:
             scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        if scaler is not None and "scaler_state_dict" in checkpoint:
+            scaler.load_state_dict(checkpoint["scaler_state_dict"])
         metadata = {
             "epoch": checkpoint.get("epoch"),
             "metrics": checkpoint.get("metrics", {}),

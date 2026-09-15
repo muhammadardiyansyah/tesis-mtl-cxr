@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from src.datasets.dataloaders import build_dataloaders
 from src.losses.masked_loss import MaskedBCELoss
 from src.models.multitask_model import MultiTaskModel
 from src.training.train import train_model
+from src.utils.checkpoint import load_checkpoint
 from src.utils.config import get_config_path, load_config
 from src.utils.seed import set_global_seed
 
@@ -40,6 +42,21 @@ def parse_args() -> argparse.Namespace:
         "--allow-cpu-full",
         action="store_true",
         help="Izinkan full training pada CPU (biasanya sangat lambat).",
+    )
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const="auto",
+        default=None,
+        help=(
+            "Lanjutkan pilot/full dari checkpoint latest. Tanpa nilai memakai "
+            "checkpoint latest default; path eksplisit juga dapat diberikan."
+        ),
+    )
+    parser.add_argument(
+        "--no-local-config",
+        action="store_true",
+        help="Abaikan configs/config.local.yaml, berguna pada Kaggle/cloud.",
     )
     return parser.parse_args()
 
@@ -107,7 +124,7 @@ def print_task_metrics(metrics: dict) -> None:
 
 def main() -> None:
     args = parse_args()
-    config = load_config(args.config)
+    config = load_config(args.config, use_local_config=not args.no_local_config)
     training_config = config["training"]
     model_config = config["model"]
     multitask_config = config["multitask"]
@@ -141,6 +158,7 @@ def main() -> None:
         max_val_batches = int(smoke_config.get("val_batches", 2))
         pretrained = bool(smoke_config.get("use_pretrained_weights", False))
         checkpoint_path = None
+        latest_checkpoint_path = None
         history_filename = None
     elif mode == "pilot":
         epochs = int(pilot_config.get("epochs", 1))
@@ -152,6 +170,13 @@ def main() -> None:
             / pilot_config.get(
                 "checkpoint_filename",
                 "resnet18_mtl_pilot_v1_best.pt",
+            )
+        )
+        latest_checkpoint_path = (
+            get_config_path(config, "checkpoints")
+            / pilot_config.get(
+                "latest_checkpoint_filename",
+                "resnet18_mtl_pilot_v1_latest.pt",
             )
         )
         history_filename = pilot_config.get(
@@ -167,7 +192,22 @@ def main() -> None:
             get_config_path(config, "checkpoints")
             / experiment_config["checkpoint_filename"]
         )
+        latest_checkpoint_path = (
+            get_config_path(config, "checkpoints")
+            / experiment_config.get(
+                "latest_checkpoint_filename",
+                "resnet18_mtl_baseline_v1_latest.pt",
+            )
+        )
         history_filename = experiment_config["history_filename"]
+
+    history_path = None
+    if history_filename is not None:
+        history_path = get_config_path(config, "outputs") / history_filename
+
+    amp_enabled = bool(
+        device.type == "cuda" and training_config.get("mixed_precision", True)
+    )
 
     print("=" * 68)
     print("MTL CXR TRAINING")
@@ -178,6 +218,10 @@ def main() -> None:
     print(f"Pretrained : {pretrained}")
     print(f"Epoch      : {epochs}")
     print(f"Task       : {', '.join(task_names)}")
+    print(f"AMP        : {amp_enabled}")
+    if device.type == "cuda":
+        print(f"GPU aktif  : {torch.cuda.get_device_name(0)}")
+        print(f"GPU tersedia: {torch.cuda.device_count()} (pelatihan memakai 1 GPU)")
 
     loaders = build_dataloaders(config)
     model = MultiTaskModel(
@@ -193,8 +237,46 @@ def main() -> None:
     ).to(device)
     optimizer = build_optimizer(model, config)
     scheduler = build_scheduler(optimizer, config)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+
+    start_epoch = 1
+    resume_history = None
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
+    resumed_from = None
+    if args.resume is not None:
+        if mode == "smoke":
+            raise ValueError("--resume hanya didukung untuk mode pilot atau full.")
+        if args.resume == "auto":
+            resume_path = latest_checkpoint_path
+        else:
+            resume_path = Path(args.resume).expanduser()
+            if not resume_path.is_absolute():
+                resume_path = Path(__file__).resolve().parent / resume_path
+        if resume_path is None or not resume_path.exists():
+            raise FileNotFoundError(f"Checkpoint resume tidak ditemukan: {resume_path}")
+
+        resume_metadata = load_checkpoint(
+            model,
+            resume_path,
+            device,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+        )
+        completed_epoch = int(resume_metadata.get("epoch") or 0)
+        resume_extra = resume_metadata.get("extra", {})
+        start_epoch = completed_epoch + 1
+        resume_history = resume_extra.get("history")
+        best_val_loss = float(resume_extra.get("best_val_loss", float("inf")))
+        epochs_without_improvement = int(
+            resume_extra.get("epochs_without_improvement", 0)
+        )
+        resumed_from = str(resume_path)
+        print(f"Resume     : {resume_path} (mulai epoch {start_epoch})")
 
     started_at = datetime.now().astimezone()
+    session_started = time.perf_counter()
     history = train_model(
         model=model,
         train_loader=loaders["train"],
@@ -205,35 +287,49 @@ def main() -> None:
         epochs=epochs,
         patience=int(training_config.get("patience", 5)),
         checkpoint_path=checkpoint_path,
+        latest_checkpoint_path=latest_checkpoint_path,
+        history_path=history_path,
         scheduler=scheduler,
+        scaler=scaler,
+        amp_enabled=amp_enabled,
         task_names=task_names,
         grad_clip_norm=float(training_config.get("grad_clip_norm", 1.0)),
         max_train_batches=max_train_batches,
         max_val_batches=max_val_batches,
+        start_epoch=start_epoch,
+        history=resume_history,
+        best_val_loss=best_val_loss,
+        epochs_without_improvement=epochs_without_improvement,
     )
     finished_at = datetime.now().astimezone()
-    print_task_metrics(history["val_metrics"][-1])
+    elapsed_seconds = time.perf_counter() - session_started
+    if history["val_metrics"]:
+        print_task_metrics(history["val_metrics"][-1])
 
     if mode in {"pilot", "full"}:
-        output_path = (
-            get_config_path(config, "outputs")
-            / history_filename
-        )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "experiment": experiment_config["name"],
             "mode": mode,
             "device": str(device),
+            "gpu_names": [
+                torch.cuda.get_device_name(index)
+                for index in range(torch.cuda.device_count())
+            ],
+            "torch_version": torch.__version__,
+            "mixed_precision": amp_enabled,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
+            "elapsed_seconds": elapsed_seconds,
+            "resumed_from": resumed_from,
             "config": config,
             "history": history,
         }
-        output_path.write_text(
+        history_path.write_text(
             json.dumps(to_json_safe(payload), indent=2),
             encoding="utf-8",
         )
-        print(f"Riwayat eksperimen tersimpan: {output_path}")
+        print(f"Riwayat eksperimen tersimpan: {history_path}")
 
     print("\nTraining selesai dengan aman.")
 

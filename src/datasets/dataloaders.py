@@ -37,6 +37,7 @@ def build_dataloaders(config: dict | None = None) -> dict[str, DataLoader]:
     num_workers = int(training_config.get("num_workers", 0))
     eval_batch_size = int(training_config.get("eval_batch_size", 64))
     pin_memory = bool(training_config.get("pin_memory", torch.cuda.is_available()))
+    prefetch_factor = int(training_config.get("prefetch_factor", 2))
 
     raw_data_dir = get_config_path(config, "raw_data")
 
@@ -81,6 +82,8 @@ def build_dataloaders(config: dict | None = None) -> dict[str, DataLoader]:
         "generator": generator,
         "persistent_workers": num_workers > 0,
     }
+    if num_workers > 0:
+        common_loader_options["prefetch_factor"] = prefetch_factor
 
     train_loader = DataLoader(
         train_dataset,

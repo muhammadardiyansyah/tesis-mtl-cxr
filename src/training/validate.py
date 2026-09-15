@@ -18,19 +18,16 @@ def validate_one_epoch(
     criterion,
     device,
     *,
+    amp_enabled: bool = False,
     task_names: Sequence[str] = ("cardiomegaly", "tuberculosis"),
     thresholds: float | Sequence[float] = 0.5,
     return_metrics: bool = False,
     max_batches: int | None = None,
 ):
-    """Validate one epoch.
-
-    By default this retains the old API and returns only a float loss. Set
-    ``return_metrics=True`` to receive ``{"loss": ..., "metrics": ...}``.
-    ``max_batches`` is intended only for pipeline smoke tests.
-    """
+    """Validate one epoch with optional CUDA automatic mixed precision."""
     model.eval()
     device = torch.device(device)
+    amp_enabled = bool(amp_enabled and device.type == "cuda")
     running_loss = 0.0
     processed_batches = 0
     all_labels: list[np.ndarray] = []
@@ -46,15 +43,20 @@ def validate_one_epoch(
         labels = labels.to(device, non_blocking=True).float()
         masks = masks.to(device, non_blocking=True).float()
 
-        logits = model(images)
-        loss = criterion(logits, labels, masks)
+        with torch.autocast(
+            device_type=device.type,
+            dtype=torch.float16,
+            enabled=amp_enabled,
+        ):
+            logits = model(images)
+            loss = criterion(logits, labels, masks)
         if not torch.isfinite(loss):
             raise FloatingPointError("Validation loss menjadi NaN atau inf.")
 
         running_loss += float(loss.item())
         processed_batches += 1
         all_labels.append(labels.cpu().numpy())
-        all_probabilities.append(torch.sigmoid(logits).cpu().numpy())
+        all_probabilities.append(torch.sigmoid(logits.float()).cpu().numpy())
         all_masks.append(masks.cpu().numpy())
         progress.set_postfix(loss=f"{loss.item():.4f}")
 
