@@ -40,20 +40,22 @@ def build_dataloaders(config: dict | None = None) -> dict[str, DataLoader]:
     prefetch_factor = int(training_config.get("prefetch_factor", 2))
 
     raw_data_dir = get_config_path(config, "raw_data")
+    # Ablation: CLAHE hanya aktif jika config preprocessing.clahe = true.
+    use_clahe = bool(config.get("preprocessing", {}).get("clahe", False))
 
     train_dataset = ChestXrayDataset(
         csv_file=get_config_path(config, "train_csv"),
-        transform=get_train_transforms(image_size=image_size),
+        transform=get_train_transforms(image_size=image_size, use_clahe=use_clahe),
         raw_data_dir=raw_data_dir,
     )
     val_dataset = ChestXrayDataset(
         csv_file=get_config_path(config, "val_csv"),
-        transform=get_eval_transforms(image_size=image_size),
+        transform=get_eval_transforms(image_size=image_size, use_clahe=use_clahe),
         raw_data_dir=raw_data_dir,
     )
     test_dataset = ChestXrayDataset(
         csv_file=get_config_path(config, "test_csv"),
-        transform=get_eval_transforms(image_size=image_size),
+        transform=get_eval_transforms(image_size=image_size, use_clahe=use_clahe),
         raw_data_dir=raw_data_dir,
     )
 

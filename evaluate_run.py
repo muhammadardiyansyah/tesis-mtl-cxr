@@ -228,7 +228,7 @@ def cmd_predict(args):
     model.to(device).eval()
 
     split_csv = Path(args.split_dir) / f"{args.split}.csv"
-    dataset = ChestXrayDataset(split_csv, transform=get_eval_transforms(224),
+    dataset = ChestXrayDataset(split_csv, transform=get_eval_transforms(224, use_clahe=args.clahe),
                                raw_data_dir=args.raw_data)
     frame = dataset.dataframe
     active = np.zeros(len(frame), dtype=bool)
@@ -267,7 +267,7 @@ def cmd_predict(args):
     meta[args.split] = {
         "checkpoint": str(checkpoint_path), "checkpoint_sha256": sha256(checkpoint_path),
         "checkpoint_epoch": state.get("epoch") if isinstance(state, dict) else None,
-        "model_tasks": model_tasks, "split_csv": str(split_csv), "rows": int(len(row_index)),
+        "model_tasks": model_tasks, "clahe": bool(args.clahe), "split_csv": str(split_csv), "rows": int(len(row_index)),
         "code_commit": git_commit(), "created_utc": datetime.now(timezone.utc).isoformat(),
     }
     write_json(files["meta"], meta)
@@ -323,9 +323,20 @@ def cmd_metrics(args):
     files = paths_for(Path(args.out_dir), args.run)
     data = load_predictions(files["test"])
     thresholds = json.loads(files["thresholds"].read_text())["thresholds"]
+    target = files["metrics"]
+    excluded = 0
+    if args.exclude:
+        # Analisis sensitivitas yang sudah direncanakan (mis. tanpa near-duplicate)
+        drop = pd.read_csv(args.exclude)["row_index"].to_numpy()
+        keep = ~np.isin(data["row_index"], drop)
+        excluded = int((~keep).sum())
+        data = {k: (v[keep] if k != "task_names" else v) for k, v in data.items()}
+        target = files["dir"] / f"{args.run}_test_metrics_{Path(args.exclude).stem}.json"
+        print(f"Analisis sensitivitas: {excluded} citra test dikeluarkan ({args.exclude})")
     groups_all = groups_for(Path(args.split_dir) / "test.csv", data["row_index"])
     report = {"run": args.run, "split": "test", "bootstrap_unit": "patient",
-              "iterations": args.iterations, "seed": BOOTSTRAP_SEED, "tasks": {}}
+              "iterations": args.iterations, "seed": BOOTSTRAP_SEED,
+              "excluded_rows_file": args.exclude, "excluded_rows": excluded, "tasks": {}}
     for j, task in enumerate(TASKS):
         sel = data["masks"][:, j]
         if task not in thresholds or not sel.any():
@@ -356,8 +367,8 @@ def cmd_metrics(args):
         for k in REPORTED:
             e, (lo, hi) = point[k], report["tasks"][task]["metrics"][k]["ci95"]
             print(f"  {k:18s} {e:.4f}  [{lo:.4f}, {hi:.4f}]")
-    write_json(files["metrics"], report)
-    print(f"\nTersimpan: {files['metrics']}")
+    write_json(target, report)
+    print(f"\nTersimpan: {target}")
 
 
 # ----------------------------------------------------------------------------
@@ -457,6 +468,8 @@ def main():
     p.add_argument("--raw-data", default=str(DEFAULT_RAW))
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--workers", type=int, default=2)
+    p.add_argument("--clahe", action="store_true",
+                   help="Wajib untuk run yang dilatih dengan preprocessing.clahe: true")
     p.set_defaults(func=cmd_predict)
 
     p = sub.add_parser("threshold")
@@ -466,6 +479,7 @@ def main():
     p = sub.add_parser("metrics")
     p.add_argument("--run", required=True)
     p.add_argument("--iterations", type=int, default=BOOTSTRAP_ITERATIONS)
+    p.add_argument("--exclude", help="CSV berkolom row_index (analisis sensitivitas)")
     p.set_defaults(func=cmd_metrics)
 
     p = sub.add_parser("compare")

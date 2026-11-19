@@ -1,0 +1,40 @@
+# MTL frontal-only, seed 44 (ABLATION CLAHE). Jalankan dengan --no-local-config.
+# Identik dengan resnet18_mtl_frontal_v1 (18 Sep 2026) kecuali seed, nama run, dan CLAHE aktif (ablation).
+base_config: "config.yaml"
+
+paths:
+  raw_data: "/kaggle/working/mtl_cxr_data/raw"
+  metadata: "/kaggle/working/tesis-mtl-cxr/data/metadata"
+  model_ready_metadata: "/kaggle/working/tesis-mtl-cxr/data/metadata/harmonized_model_ready_v1.csv"
+  train_csv: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/train.csv"
+  val_csv: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/val.csv"
+  test_csv: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/test.csv"
+  split_report: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/split_report.json"
+  checkpoints: "/kaggle/working/checkpoints_frontal_clahe"
+  outputs: "/kaggle/working/outputs_frontal_clahe"
+  external_data: "/kaggle/working/mtl_cxr_data/raw/external_rs"
+
+training:
+  device: "cuda"
+  num_workers: 2
+  prefetch_factor: 2
+  eval_batch_size: 128
+  pin_memory: true
+  mixed_precision: true
+  random_seed: 44
+
+class_balance:
+  cardiomegaly:
+    negative: 187595
+    positive: 18418
+    masked: 5880
+    pos_weight: 10.1854
+
+experiment:
+  name: "resnet18_mtl_frontal_clahe_v1_s44"
+  checkpoint_filename: "resnet18_mtl_frontal_clahe_v1_s44_best.pt"
+  latest_checkpoint_filename: "resnet18_mtl_frontal_clahe_v1_s44_latest.pt"
+  history_filename: "resnet18_mtl_frontal_clahe_v1_s44_history.json"
+
+preprocessing:
+  clahe: true   # clipLimit 2.0, grid 8x8 (src/preprocessing/clahe.py)

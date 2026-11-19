@@ -7,6 +7,8 @@ from typing import Union
 from PIL import Image, ImageOps
 from torchvision import transforms
 
+from src.preprocessing.clahe import CLAHE
+
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -37,7 +39,7 @@ class PadToSquare:
         )
 
 
-def get_train_transforms(image_size: int = 224):
+def get_train_transforms(image_size: int = 224, use_clahe: bool = False):
     """Return conservative stochastic augmentation for training only.
 
     Horizontal flipping is intentionally excluded because it reverses
@@ -49,6 +51,7 @@ def get_train_transforms(image_size: int = 224):
         [
             PadToSquare(fill=0),
             transforms.Resize((image_size, image_size)),
+            *([CLAHE()] if use_clahe else []),
             transforms.RandomAffine(
                 degrees=5,
                 translate=(0.02, 0.02),
@@ -68,13 +71,14 @@ def get_train_transforms(image_size: int = 224):
     )
 
 
-def get_eval_transforms(image_size: int = 224):
+def get_eval_transforms(image_size: int = 224, use_clahe: bool = False):
     """Return deterministic transforms for validation and testing."""
 
     return transforms.Compose(
         [
             PadToSquare(fill=0),
             transforms.Resize((image_size, image_size)),
+            *([CLAHE()] if use_clahe else []),
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=IMAGENET_MEAN,
