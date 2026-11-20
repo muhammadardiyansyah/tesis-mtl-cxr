@@ -82,3 +82,27 @@ validasi, maupun pemilihan threshold.
   kelas, loss total = rata-rata berbobot tugas aktif, augmentasi konservatif tanpa horizontal
   flip, source-balanced sampler, CLAHE dipindah menjadi ablation, NIH versi 224×224,
   implementasi Grad-CAM sendiri, eksklusi artefak berat tidak dilakukan manual.
+
+## 8. Amandemen 20 Nov 2026: uji eksternal TBC (dikunci sebelum dijalankan)
+
+Alasan: analisis 5.2 (uji shortcut) menunjukkan head TBC model MTL memprediksi positif
+pada 34-43% citra NIH dan 66-81% citra CheXpert (prevalensi TBC sebenarnya jauh < 1%),
+sehingga AUC TBC internal hanya berlaku di dalam TBX11K. Uji eksternal ini adalah opsi
+cadangan proposal 2.3.5 (dataset publik lain yang tidak dipakai training).
+
+- Data: Shenzhen (662 citra) dan Montgomery (138 citra), NLM (Jaeger et al., 2014).
+  Label dari nama berkas (`CHNCXR/MCUCXR_####_X`, X = 0 normal, 1 TB). Folder `imgs/extra`
+  TBX11K tidak pernah dipakai di training/validasi/test internal.
+- Cek kebocoran: citra eksternal dengan korelasi thumbnail 32x32 > 0,995 terhadap salah
+  satu dari 8.400 citra TBX11K penelitian dikeluarkan dari analisis utama dan dilaporkan;
+  pasangan yang ditandai diperiksa visual.
+- Model: `resnet18_mtl_frontal_v2_s42` (utama, sesuai bagian 6) dan seluruh seed MTL serta
+  STL TBC (pembanding). Threshold = threshold beku validation internal. Tidak ada
+  penyetelan threshold, kalibrasi ulang, atau fine-tuning pada data eksternal.
+- Endpoint: AUC-ROC, sensitivitas, spesifisitas, AUPRC, kalibrasi per dataset dan gabungan,
+  CI 95% bootstrap (1.000); MTL vs STL TBC per seed dengan DeLong + bootstrap berpasangan.
+- Interpretasi yang ditetapkan sekarang: penurunan AUC eksternal > 0,05 dibanding internal
+  atau spesifisitas eksternal < 0,80 pada threshold beku dinyatakan sebagai kegagalan
+  generalisasi head TBC. Hasil dilaporkan apa adanya.
+- Catatan: pHash (bagian 5.3) terbukti tidak spesifik untuk CXR (1.082 pasangan "duplikat"
+  berlabel berbeda); analisis duplikat utama memakai MD5 (pasca-hoc, ditandai).
