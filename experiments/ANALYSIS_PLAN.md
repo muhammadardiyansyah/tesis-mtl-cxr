@@ -106,3 +106,49 @@ cadangan proposal 2.3.5 (dataset publik lain yang tidak dipakai training).
   generalisasi head TBC. Hasil dilaporkan apa adanya.
 - Catatan: pHash (bagian 5.3) terbukti tidak spesifik untuk CXR (1.082 pasangan "duplikat"
   berlabel berbeda); analisis duplikat utama memakai MD5 (pasca-hoc, ditandai).
+
+## 9. Rencana uji eksternal RS Universitas Hasanuddin (melengkapi bagian 6; dikunci 20 Nov 2026, sebelum data diterima)
+
+Dasar etik: Rekomendasi Persetujuan Etik No. 1276/UN4.6.4.5.31/PP36/2026 (protokol UH26101021),
+berlaku 18 Nov 2026 - 18 Nov 2027. Data tidak diunggah ke Kaggle; inferensi dijalankan secara
+lokal di lingkungan Universitas Hasanuddin dengan checkpoint dan threshold beku.
+
+**Besar sampel.** Metode Buderer (1996) untuk estimasi sensitivitas/spesifisitas:
+n = z^2 * p(1-p) / d^2 per kelompok. Dengan Se = Sp = 0,80, CI 95% (z = 1,96):
+presisi +-0,10 -> 62 kasus per kelompok (minimum); presisi +-0,075 -> 110.
+Target: >=100 kasus TBC positif, >=100 kasus kardiomegali positif, >=100 citra normal
+(total +-300-400 citra), sesuai rekomendasi minimum 100 kejadian untuk uji eksternal
+(Collins, Ogundimu, & Altman, 2016). Bila jumlah < 62 per kelompok, hasil dilaporkan sebagai
+studi pendahuluan dengan CI lebar.
+
+**Desain pengambilan.** Retrospektif, sampel diperkaya (kasus dan kontrol diambil terpisah).
+Konsekuensi: PPV/NPV tidak diestimasi; yang dilaporkan sensitivitas, spesifisitas, AUC, AUPRC,
+kalibrasi. Kriteria inklusi: CXR frontal PA/AP dewasa, kualitas diagnostik. Eksklusi: citra
+lateral, artefak berat yang menutupi toraks, label tidak dapat dipastikan.
+
+**Standar acuan.** TBC: konfirmasi bakteriologis (GeneXpert/BTA) atau diagnosis klinis dokter
+(jenis konfirmasi dicatat per kasus dan dianalisis terpisah). Kardiomegali: CTR > 0,5 menurut
+bacaan radiolog. Setiap citra berlabel untuk kedua kondisi; citra "normal" negatif untuk keduanya.
+
+**Model dan analisis.** `resnet18_mtl_frontal_v2_s42` + threshold beku validation internal
+(utama); seed lain dan STL sebagai pembanding. Tidak ada fine-tuning, kalibrasi ulang, atau
+pemilihan threshold dari data RS. Metrik per tugas dengan CI 95% bootstrap per pasien.
+
+**Hipotesis yang ditetapkan sebelum melihat data** (berdasarkan bagian 5.2 dan 8): head TBC
+diperkirakan menghasilkan spesifisitas rendah (banyak positif palsu) pada data RS karena
+belajar ciri sumber TBX11K; head kardiomegali diperkirakan menurun sedang dibanding internal.
+Hasil dilaporkan apa adanya, termasuk bila hipotesis ini tidak terbukti.
+
+## 10. Amandemen 20 Nov 2026: evaluasi ablation CLAHE (dikunci sebelum dievaluasi)
+
+Run: `resnet18_mtl_frontal_clahe_v1_s{42,43,44}` (sudah dilatih, commit 38e63ca; belum ada
+prediksi validation/test yang dilihat). Protokol sama dengan run utama: threshold Youden dari
+validation (dengan transform CLAHE), dibekukan, test dibuka sekali.
+
+- Pembanding: MTL utama tanpa CLAHE pada seed yang sama (`resnet18_mtl_frontal_v2_s{seed}`),
+  bootstrap berpasangan per pasien + DeLong, per tugas; ringkasan mean ± SD.
+- Uji eksternal TBC (Shenzhen + Montgomery, 800 citra; prosedur bagian 8) juga dijalankan
+  untuk run CLAHE. Hipotesis a priori: CLAHE mengurangi perbedaan kontras antar-sumber
+  sehingga AUC eksternal TBC dapat naik; dinyatakan bermakna hanya bila arah sama pada
+  ketiga seed dan CI bootstrap selisih AUC (CLAHE − utama) tidak memuat 0 pada ketiga seed.
+- Hasil ablation tidak mengubah pipeline utama (bagian 1).

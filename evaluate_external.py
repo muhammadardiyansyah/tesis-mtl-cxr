@@ -33,19 +33,35 @@ DUP_CORR = 0.995
 
 
 # ----------------------------------------------------------------------------
+def _priority(path: Path) -> int:
+    """Utamakan rilis NLM asli (folder CXR_png) di atas salinan dalam TBX11K/imgs/extra."""
+    text = str(path).lower()
+    return 0 if "cxr_png" in text else (2 if "tbx11k" in text else 1)
+
+
 def discover(search_roots: list[Path]) -> pd.DataFrame:
-    """Cari berkas Shenzhen/Montgomery; satu entri per nama berkas unik."""
-    rows, seen = [], set()
+    """Cari citra Shenzhen/Montgomery; satu entri per kasus.
+
+    Folder masker (leftMask/rightMask/ManualMask) memakai nama berkas yang sama dengan
+    citra rontgen, sehingga semua path yang memuat 'mask' dikecualikan.
+    """
+    best: dict[str, tuple[int, Path, str, int, str]] = {}
     for root in search_roots:
         for path in root.rglob("*.png"):
+            if any("mask" in part.lower() for part in path.parts):
+                continue
             for name, pattern in PATTERNS.items():
                 m = pattern.match(path.name)
-                if m and path.name.upper() not in seen:
-                    seen.add(path.name.upper())
-                    rows.append({"dataset": name, "case_id": f"{name}_{m.group(1)}",
-                                 "label": int(m.group(2)), "path": str(path)})
-    frame = pd.DataFrame(rows).sort_values(["dataset", "case_id"]).reset_index(drop=True)
-    return frame
+                if not m:
+                    continue
+                key = path.name.upper()
+                cand = (_priority(path), path, name, int(m.group(2)), f"{name}_{m.group(1)}")
+                if key not in best or cand[0] < best[key][0]:
+                    best[key] = cand
+    rows = [{"dataset": n, "case_id": c, "label": y, "path": str(p)} for _, p, n, y, c in best.values()]
+    if not rows:
+        return pd.DataFrame(columns=["dataset", "case_id", "label", "path"])
+    return pd.DataFrame(rows).sort_values(["dataset", "case_id"]).reset_index(drop=True)
 
 
 def load_8bit(path: str) -> Image.Image:
@@ -68,7 +84,7 @@ def thumb(image: Image.Image) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------------
-def predict(frame: pd.DataFrame, checkpoint: Path, batch_size: int = 32) -> np.ndarray:
+def predict(frame: pd.DataFrame, checkpoint: Path, batch_size: int = 32, use_clahe: bool = False) -> np.ndarray:
     import torch
     from src.datasets.transforms import get_eval_transforms
     from src.models.multitask_model import MultiTaskModel
@@ -81,7 +97,7 @@ def predict(frame: pd.DataFrame, checkpoint: Path, batch_size: int = 32) -> np.n
     model.load_state_dict(sd, strict=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device).eval()
-    tf = get_eval_transforms(224)
+    tf = get_eval_transforms(224, use_clahe=use_clahe)
     j = tasks.index("tuberculosis")
     out = []
     with torch.no_grad():
@@ -118,6 +134,8 @@ def main() -> None:
     ap.add_argument("--checkpoint-roots", nargs="+", required=True)
     ap.add_argument("--out-dir", default="/kaggle/working/external")
     ap.add_argument("--iterations", type=int, default=1000)
+    ap.add_argument("--runs", nargs="+", help="default: MTL dan STL TBC seed 42-44. "
+                    "Run bernama *clahe* otomatis memakai transform CLAHE.")
     args = ap.parse_args()
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
 
@@ -142,8 +160,8 @@ def main() -> None:
     analysis = frame[~frame["duplicate_of_training_data"]].reset_index(drop=True)
 
     # 3. Prediksi semua run dengan threshold beku internal
-    runs = [f"resnet18_mtl_frontal_v2_s{s}" for s in (42, 43, 44)] + \
-           [f"resnet18_stl_tuberculosis_frontal_v1_s{s}" for s in (42, 43, 44)]
+    runs = args.runs or ([f"resnet18_mtl_frontal_v2_s{s}" for s in (42, 43, 44)] +
+                         [f"resnet18_stl_tuberculosis_frontal_v1_s{s}" for s in (42, 43, 44)])
     preds, report = {}, {"plan": "experiments/ANALYSIS_PLAN.md bagian 8", "dup_corr_threshold": DUP_CORR,
                          "n_excluded_duplicates": int(frame["duplicate_of_training_data"].sum()), "runs": {}}
     for run in runs:
@@ -151,7 +169,7 @@ def main() -> None:
         if ckpt is None:
             raise FileNotFoundError(run)
         t = json.loads((Path(args.eval_dir) / run / f"{run}_frozen_thresholds.json").read_text())["thresholds"]["tuberculosis"]
-        p = predict(analysis, ckpt)
+        p = predict(analysis, ckpt, use_clahe="clahe" in run)
         preds[run] = p
         analysis[f"p_{run}"] = p
         report["runs"][run] = {"checkpoint_sha256": sha256(ckpt), "threshold": t, "subsets": {}}
@@ -171,7 +189,10 @@ def main() -> None:
     y = analysis["label"].to_numpy()
     g = analysis["case_id"].to_numpy()
     for s in (42, 43, 44):
-        a, b = preds[f"resnet18_mtl_frontal_v2_s{s}"], preds[f"resnet18_stl_tuberculosis_frontal_v1_s{s}"]
+        ka, kb = f"resnet18_mtl_frontal_v2_s{s}", f"resnet18_stl_tuberculosis_frontal_v1_s{s}"
+        if ka not in preds or kb not in preds:
+            continue
+        a, b = preds[ka], preds[kb]
         from sklearn.metrics import roc_auc_score
         rng = np.random.default_rng(BOOTSTRAP_SEED)
         d = [roc_auc_score(y, a, sample_weight=w) - roc_auc_score(y, b, sample_weight=w)
