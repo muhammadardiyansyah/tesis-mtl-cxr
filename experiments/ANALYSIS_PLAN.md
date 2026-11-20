@@ -152,3 +152,24 @@ validation (dengan transform CLAHE), dibekukan, test dibuka sekali.
   sehingga AUC eksternal TBC dapat naik; dinyatakan bermakna hanya bila arah sama pada
   ketiga seed dan CI bootstrap selisih AUC (CLAHE − utama) tidak memuat 0 pada ketiga seed.
 - Hasil ablation tidak mengubah pipeline utama (bagian 1).
+
+## 11. Amandemen 20 Nov 2026: analisis XAI (RQ3), dikunci sebelum peta saliency dilihat
+
+Model: `resnet18_mtl_frontal_v2_s42` (bagian 5.5). Lapisan target: `backbone.model.layer4`.
+Metode: Grad-CAM dan Grad-CAM++ per head tugas (logit), implementasi manual (`run_xai.py`).
+
+- Kualitatif: kasus TP/TN/FP/FN paling yakin (3 per kategori) per tugas dan per sumber dari
+  prediksi test yang sudah ada (threshold beku), ditambah kasus eksternal Shenzhen/Montgomery
+  untuk head TBC.
+- Kuantitatif (Montgomery, masker paru manual NLM; hanya citra yang geometrinya sejajar dengan
+  maskernya): proporsi energi peta di dalam paru (`lung_energy`) dibanding proporsi luas paru;
+  pointing game (titik maksimum di dalam paru); proporsi energi pada bingkai luar 8%
+  (`border_energy`); untuk head kardiomegali, energi pada proksi mediastinum/jantung (area di
+  antara kedua paru pada separuh bawah kotak paru; bukan masker jantung).
+- Tafsiran a priori: head TBC dianggap berfokus anatomis bila `lung_energy` rata-rata jelas di atas
+  proporsi luas paru dan pointing game > 0,5; dianggap mendukung hipotesis shortcut bila
+  `border_energy` melebihi proporsi luas bingkai atau `lung_energy` tidak lebih tinggi dari luas paru.
+- Sanity check (randomisasi bobot layer4 + head): korelasi Spearman peta asli vs model teracak;
+  rata-rata > 0,5 berarti peta tidak cukup bergantung pada bobot terlatih, sehingga interpretasi
+  visual harus dibatasi.
+- Keterbatasan yang dinyatakan: saliency map bukan bukti kausal; proksi jantung bukan anotasi jantung.
