@@ -1,0 +1,41 @@
+# MTL frontal-only v3, seed 42. Jalankan dengan --no-local-config.
+# Eksperimen tambahan (ANALYSIS_PLAN bagian 12): identik dengan resnet18_mtl_frontal_v3_s42
+# kecuali batch_sampling.steps_per_epoch = 1472 (4 x 368), nama run, dan folder keluaran.
+base_config: "config.yaml"
+
+paths:
+  raw_data: "/kaggle/working/mtl_cxr_data/raw"
+  metadata: "/kaggle/working/tesis-mtl-cxr/data/metadata"
+  model_ready_metadata: "/kaggle/working/tesis-mtl-cxr/data/metadata/harmonized_model_ready_v1.csv"
+  train_csv: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/train.csv"
+  val_csv: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/val.csv"
+  test_csv: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/test.csv"
+  split_report: "/kaggle/working/tesis-mtl-cxr/data/splits/patient_level_frontal_v1/split_report.json"
+  checkpoints: "/kaggle/working/checkpoints_frontal_v3"
+  outputs: "/kaggle/working/outputs_frontal_v3"
+  external_data: "/kaggle/working/mtl_cxr_data/raw/external_rs"
+
+training:
+  device: "cuda"
+  num_workers: 2
+  prefetch_factor: 2
+  eval_batch_size: 128
+  pin_memory: true
+  mixed_precision: true
+  random_seed: 42
+
+class_balance:
+  cardiomegaly:
+    negative: 187595
+    positive: 18418
+    masked: 5880
+    pos_weight: 10.1854
+
+experiment:
+  name: "resnet18_mtl_frontal_v3_s42"
+  checkpoint_filename: "resnet18_mtl_frontal_v3_s42_best.pt"
+  latest_checkpoint_filename: "resnet18_mtl_frontal_v3_s42_latest.pt"
+  history_filename: "resnet18_mtl_frontal_v3_s42_history.json"
+
+batch_sampling:
+  steps_per_epoch: 1472   # 4 x 368; satu-satunya perubahan terhadap v2

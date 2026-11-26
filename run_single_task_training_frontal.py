@@ -390,7 +390,26 @@ def main() -> None:
         default=42,
         help="Seed eksperimen (42, 43, 44 untuk analisis multi-seed).",
     )
+    # Ditambahkan 26 Nov 2026 untuk eksperimen tambahan (ANALYSIS_PLAN bagian 12).
+    # Nilai bawaan mereproduksi run v1 persis.
+    parser.add_argument(
+        "--steps-per-epoch",
+        type=int,
+        default=368,
+        help="Jumlah batch per epoch (v1 = 368; v2 kardiomegali = 1472).",
+    )
+    parser.add_argument(
+        "--version",
+        default="v1",
+        help="Label versi pada nama run, mis. v1 atau v2.",
+    )
     args = parser.parse_args()
+
+    # Cegah run dengan protokol berbeda tersimpan dengan nama v1.
+    global STEPS_PER_EPOCH
+    STEPS_PER_EPOCH = int(args.steps_per_epoch)
+    if args.version == "v1" and STEPS_PER_EPOCH != 368:
+        raise SystemExit("steps_per_epoch != 368 harus memakai --version selain v1")
 
     # Seed dipakai oleh sampler, generator DataLoader, dan nama eksperimen.
     global SEED
@@ -405,7 +424,7 @@ def main() -> None:
 
     epochs = 1 if mode == "smoke" else MAX_EPOCHS
     max_val_batches = 2 if mode == "smoke" else None
-    experiment_name = f"resnet18_stl_{task_name}_frontal_v1_s{SEED}"
+    experiment_name = f"resnet18_stl_{task_name}_frontal_{args.version}_s{SEED}"
 
     best_path = (
         CHECKPOINT_DIR /

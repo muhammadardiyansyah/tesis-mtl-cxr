@@ -173,3 +173,42 @@ Metode: Grad-CAM dan Grad-CAM++ per head tugas (logit), implementasi manual (`ru
   rata-rata > 0,5 berarti peta tidak cukup bergantung pada bobot terlatih, sehingga interpretasi
   visual harus dibatasi.
 - Keterbatasan yang dinyatakan: saliency map bukan bukti kausal; proksi jantung bukan anotasi jantung.
+
+## 12. Amandemen 26 Nov 2026: eksperimen tambahan paparan data kardiomegali (dikunci sebelum pelatihan)
+
+Dasar: arahan pembimbing utama (Prof. Syafruddin Syarif, 26 Nov 2026: "Tambah satu eksperimen").
+Alasan: pada run v2, SourceBalancedBatchSampler menetapkan 368 langkah per epoch (dibatasi TBX11K),
+sehingga setiap epoch hanya memakai ±2.944 dari 77.260 citra latih NIH dan ±2.944 dari 128.753
+citra latih CheXpert. Pertanyaan: apakah paparan data kardiomegali yang lebih besar mengubah
+kinerja kardiomegali dan kesimpulan MTL vs STL?
+
+**Satu-satunya perubahan:** `steps_per_epoch` = 1.472 (4 × 368) untuk MTL dan STL kardiomegali.
+Komposisi batch, arsitektur, augmentasi, optimizer, scheduler, epoch maksimum (20), patience (5),
+pos_weight, split, dan seed (42, 43, 44) identik dengan v2. Konsekuensi yang diketahui: pada MTL,
+TBX11K diulang ±4 kali per epoch.
+
+**Run (nama dikunci):**
+- MTL: `resnet18_mtl_frontal_v3_s{42,43,44}` (configs/config.kaggle_frontal_v3_s*.yaml)
+- STL kardiomegali: `resnet18_stl_cardiomegaly_frontal_v2_s{42,43,44}`
+  (`run_single_task_training_frontal.py --steps-per-epoch 1472 --version v2`)
+- STL TBC tidak dilatih ulang (protokolnya tidak berubah).
+
+**Protokol evaluasi:** sama dengan bagian 2–5: threshold Youden dari validation lalu dibekukan;
+test internal dievaluasi satu kali setelah keenam run selesai; bootstrap berpasangan per pasien
+(1.000) + DeLong. Artefak v2 tidak diubah atau ditimpa.
+
+**Pertanyaan dan aturan tafsiran (ditetapkan sekarang):**
+- P12-A (primer): AUC kardiomegali MTL v3 vs MTL v2 pada seed yang sama. "Membaik" hanya bila
+  selisih positif dan CI 95% tidak memuat 0 pada ketiga seed; bermakna praktis bila rerata
+  selisih ≥ 0,02.
+- P12-B: AUC kardiomegali MTL v3 vs STL kardiomegali v2, dengan aturan konsistensi yang sama
+  seperti perbandingan utama (subbab 2.9.3 naskah).
+- P12-C (sekunder, deskriptif): head TBC MTL v3 pada test internal, uji eksternal Shenzhen +
+  Montgomery (prosedur bagian 8), dan probe lintas sumber (proporsi positif pada NIH/CheXpert).
+  Dibandingkan dengan MTL v2 dan STL TBC v1 secara deskriptif; tidak ada klaim baru tanpa
+  konsistensi tiga seed.
+- Kesimpulan utama tesis (RQ2) tetap berdasarkan run v2 yang sudah dikunci; v3 dilaporkan
+  sebagai eksperimen tambahan. Hasil v3 tidak dipakai untuk memilih model "terbaik" bagi uji
+  RS Unhas; bila v3 ingin diikutsertakan pada uji RS Unhas, keputusan itu harus ditulis sebagai
+  amandemen baru sebelum data RS diterima.
+- Hasil dilaporkan apa adanya, termasuk bila tidak ada perubahan.
